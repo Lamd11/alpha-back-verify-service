@@ -1,0 +1,23 @@
+{
+  "max_file_size_bytes": 10485760,
+  "max_lines_of_code": 5000,
+  "required_files": [
+    "model.py",
+    "metadata.json"
+  ],
+  "optional_files": [
+    "requirements.txt",
+    "README.md"
+  ],
+  "required_class_name": "TradingModel",
+  "required_method_name": "predict",
+  "required_metadata_fields": [
+    "model_id",
+    "version",
+    "author",
+    "expected_inputs",
+    "output_format"
+  ],
+  "timeout_seconds": 5,
+  "min_accuracy_threshold": 0.95
+}

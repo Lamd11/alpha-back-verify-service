@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AlphaBack Verify Service - Model Verification Lambda
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.10
+
+Parameters:
+  ModelUploadBucketName:
+    Type: String
+    Description: Name of the S3 bucket where models are uploaded
+    Default: alphaback-model-uploads
+
+  ModelRegistryTableName:
+    Type: String
+    Description: Name of the DynamoDB table for model registry
+    Default: ModelRegistry
+
+  UploadStatusTableName:
+    Type: String
+    Description: Name of the DynamoDB table for upload status tracking
+    Default: UploadStatus
+
+  Environment:
+    Type: String
+    Description: Environment name (dev, staging, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Resources:
+  # Lambda Function
+  VerifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub alphaback-verify-${Environment}
+      Description: Validates uploaded trading models for security and correctness
+      CodeUri: src/
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.10
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          MODEL_REGISTRY_TABLE: !Ref ModelRegistryTableName
+          UPLOAD_STATUS_TABLE: !Ref UploadStatusTableName
+          ENVIRONMENT: !Ref Environment
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref ModelUploadBucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ModelRegistryTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UploadStatusTableName
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref ModelUploadBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: models/
+                  - Name: suffix
+                    Value: .tar.gz
+
+  # S3 Bucket for Model Uploads
+  ModelUploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ModelUploadBucketName
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldModels
+            Status: Enabled
+            ExpirationInDays: 90
+      Tags:
+        - Key: Service
+          Value: AlphaBack-Verify
+        - Key: Environment
+          Value: !Ref Environment
+
+  # DynamoDB Table - Model Registry
+  ModelRegistryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref ModelRegistryTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: model_id
+          AttributeType: S
+        - AttributeName: validation_timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: model_id
+          KeyType: HASH
+        - AttributeName: validation_timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: validation_status_index
+          KeySchema:
+            - AttributeName: validation_status
+              KeyType: HASH
+            - AttributeName: validation_timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Service
+          Value: AlphaBack-Verify
+        - Key: Environment
+          Value: !Ref Environment
+
+  # DynamoDB Table - Upload Status
+  UploadStatusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref UploadStatusTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: model_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: model_id
+          KeyType: HASH
+      Tags:
+        - Key: Service
+          Value: AlphaBack-Verify
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Log Group
+  VerifyFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/alphaback-verify-${Environment}
+      RetentionInDays: 14
+
+  # CloudWatch Alarm - Lambda Errors
+  VerifyFunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub alphaback-verify-errors-${Environment}
+      AlarmDescription: Alert when verify function has errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref VerifyFunction
+
+  # CloudWatch Alarm - Lambda Duration
+  VerifyFunctionDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub alphaback-verify-duration-${Environment}
+      AlarmDescription: Alert when verify function takes too long
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 25000  # 25 seconds (max is 30)
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref VerifyFunction
+
+Outputs:
+  VerifyFunctionArn:
+    Description: ARN of the Verify Lambda Function
+    Value: !GetAtt VerifyFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-VerifyFunctionArn
+
+  ModelUploadBucketName:
+    Description: Name of the S3 bucket for model uploads
+    Value: !Ref ModelUploadBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-ModelUploadBucket
+
+  ModelRegistryTableName:
+    Description: Name of the Model Registry DynamoDB table
+    Value: !Ref ModelRegistryTable
+    Export:
+      Name: !Sub ${AWS::StackName}-ModelRegistryTable
+
+  UploadStatusTableName:
+    Description: Name of the Upload Status DynamoDB table
+    Value: !Ref UploadStatusTable
+    Export:
+      Name: !Sub ${AWS::StackName}-UploadStatusTable

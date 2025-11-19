@@ -1,0 +1,25 @@
+{
+  "model_id": "moving_average_crossover_v1",
+  "version": "1.0.0",
+  "author": "test_user_001",
+  "description": "Simple moving average crossover strategy for trend following",
+  "created_at": "2025-11-19T10:00:00Z",
+  "expected_inputs": {
+    "stock_prices": "array of float - Historical stock prices",
+    "volume": "array of int - Trading volume data",
+    "timestamps": "array of string - ISO 8601 timestamps"
+  },
+  "output_format": {
+    "signal": "string - One of: BUY, SELL, HOLD",
+    "confidence": "float - Confidence score between 0.0 and 1.0"
+  },
+  "parameters": {
+    "short_window": 10,
+    "long_window": 30
+  },
+  "tags": [
+    "trend_following",
+    "moving_average",
+    "technical_analysis"
+  ]
+}

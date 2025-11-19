@@ -1,0 +1,7 @@
+# AWS SDK for Python
+boto3>=1.26.0
+
+# For local testing only (not needed in Lambda)
+pytest>=7.4.0
+pytest-cov>=4.1.0
+moto>=4.1.0  # Mock AWS services for testing
