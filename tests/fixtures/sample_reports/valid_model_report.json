@@ -1,0 +1,27 @@
+{
+  "modelId": "TrendFollowerModel",
+  "verified": true,
+  "checks": {
+    "fileSize": {
+      "passed": true
+    },
+    "s3FileReadable": {
+      "passed": true
+    },
+    "classFileValid": {
+      "passed": true
+    },
+    "implementsInterface": {
+      "passed": true
+    },
+    "hasSimulateStep": {
+      "passed": true
+    },
+    "securityScan": {
+      "passed": true
+    }
+  },
+  "overallErrors": [],
+  "executionTimeMs": 127,
+  "timestamp": "2025-11-22T14:37:12Z"
+}

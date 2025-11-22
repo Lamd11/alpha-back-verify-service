@@ -1,0 +1,30 @@
+{
+  "modelId": "MaliciousModel",
+  "verified": false,
+  "checks": {
+    "fileSize": {
+      "passed": true
+    },
+    "s3FileReadable": {
+      "passed": true
+    },
+    "classFileValid": {
+      "passed": true
+    },
+    "implementsInterface": {
+      "passed": true
+    },
+    "hasSimulateStep": {
+      "passed": true
+    },
+    "securityScan": {
+      "passed": false,
+      "error": "Blocked package: java/io/File; Blocked package: java/io/FileReader; Blocked package: java/net/URL; Blocked package: java/net/URLConnection (+2 more)"
+    }
+  },
+  "overallErrors": [
+    "securityScan: Blocked package: java/io/File; Blocked package: java/io/FileReader; Blocked package: java/net/URL; Blocked package: java/net/URLConnection (+2 more)"
+  ],
+  "executionTimeMs": 89,
+  "timestamp": "2025-11-22T14:38:45Z"
+}

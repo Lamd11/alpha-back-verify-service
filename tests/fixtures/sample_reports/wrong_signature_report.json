@@ -1,0 +1,27 @@
+{
+  "modelId": "WrongSignatureModel",
+  "verified": false,
+  "checks": {
+    "fileSize": {
+      "passed": true
+    },
+    "s3FileReadable": {
+      "passed": true
+    },
+    "classFileValid": {
+      "passed": true
+    },
+    "implementsInterface": {
+      "passed": true
+    },
+    "hasSimulateStep": {
+      "passed": false,
+      "error": "Wrong signature. Expected: (Lcom/ttsudio/alphaback/State;)Ljava/util/List;, Found: ()Ljava/util/List;"
+    }
+  },
+  "overallErrors": [
+    "hasSimulateStep: Wrong signature. Expected: (Lcom/ttsudio/alphaback/State;)Ljava/util/List;, Found: ()Ljava/util/List;"
+  ],
+  "executionTimeMs": 63,
+  "timestamp": "2025-11-22T14:40:01Z"
+}

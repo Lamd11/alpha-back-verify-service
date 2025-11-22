@@ -1,0 +1,24 @@
+{
+  "modelId": "NoInterfaceModel",
+  "verified": false,
+  "checks": {
+    "fileSize": {
+      "passed": true
+    },
+    "s3FileReadable": {
+      "passed": true
+    },
+    "classFileValid": {
+      "passed": true
+    },
+    "implementsInterface": {
+      "passed": false,
+      "error": "Does not implement Model interface. Found: [none]"
+    }
+  },
+  "overallErrors": [
+    "implementsInterface: Does not implement Model interface. Found: [none]"
+  ],
+  "executionTimeMs": 52,
+  "timestamp": "2025-11-22T14:39:22Z"
+}
