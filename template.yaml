@@ -69,7 +69,7 @@ Resources:
                   - Name: prefix
                     Value: models/
                   - Name: suffix
-                    Value: .tar.gz
+                    Value: .jar
 
   # S3 Bucket for Model Uploads
   ModelUploadBucket:

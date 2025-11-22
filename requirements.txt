@@ -1,6 +1,9 @@
 # AWS SDK for Python
 boto3>=1.26.0
 
+# Java bytecode analysis
+jawa>=2.2.0  # Read and analyze Java .class files
+
 # For local testing only (not needed in Lambda)
 pytest>=7.4.0
 pytest-cov>=4.1.0

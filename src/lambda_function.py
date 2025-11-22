@@ -1,8 +1,8 @@
 """
-AlphaBack Verify Service - Lambda Handler
-Main entry point for model verification Lambda function
+AlphaBack Verify Service - Lambda Handler for Java Models
+Main entry point for Java model verification Lambda function
 
-Triggered by S3 upload events, validates models, and writes results to DynamoDB
+Triggered by S3 upload events, validates Java models, and writes results to DynamoDB
 """
 
 import json
@@ -12,9 +12,9 @@ from typing import Dict, Any
 import logging
 
 # Import verification modules
-from verifier.code_scanner import CodeScanner
-from verifier.structure_checker import StructureChecker
-from verifier.metadata_validator import MetadataValidator
+from verifier.java_bytecode_scanner import JavaBytecodeScanner
+from verifier.jar_structure_checker import JarStructureChecker
+from verifier.java_metadata_validator import JavaMetadataValidator
 from verifier.report_generator import ReportGenerator
 
 # Configure logging
@@ -35,21 +35,21 @@ def load_config():
     config_dir = os.path.join(os.path.dirname(__file__), 'config')
 
     with open(os.path.join(config_dir, 'allowed_imports.json'), 'r') as f:
-        import_config = json.load(f)
+        security_config = json.load(f)
 
     with open(os.path.join(config_dir, 'validation_rules.json'), 'r') as f:
         validation_config = json.load(f)
 
-    return import_config, validation_config
+    return security_config, validation_config
 
 
 # Initialize configuration at cold start
-import_config, validation_config = load_config()
+security_config, validation_config = load_config()
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Main Lambda handler - triggered by S3 upload events
+    Main Lambda handler - triggered by S3 upload events for Java models
 
     Args:
         event: S3 event containing bucket and object information
@@ -67,78 +67,148 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         object_key = record['s3']['object']['key']
         file_size = record['s3']['object']['size']
 
-        logger.info(f"Processing model: s3://{bucket_name}/{object_key} ({file_size} bytes)")
+        logger.info(f"Processing Java model: s3://{bucket_name}/{object_key} ({file_size} bytes)")
 
         # Initialize report generator
         report = ReportGenerator()
         report.start_timing()
 
-        # Step 1: Download model file from S3
-        logger.info("Downloading model from S3...")
-        response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
-        model_file_content = response['Body'].read()
-
-        # Step 2: Check file size
+        # Step 1: Check file size
         logger.info("Checking file size...")
-        structure_checker = StructureChecker(
+        jar_checker = JarStructureChecker(
             required_files=validation_config['required_files'],
-            max_size_bytes=validation_config['max_file_size_bytes'],
-            required_class=validation_config['required_class_name'],
-            required_method=validation_config['required_method_name']
+            max_size_bytes=validation_config['max_file_size_bytes']
         )
 
-        if not structure_checker.check_file_size(file_size, report):
+        if not jar_checker.check_file_size(file_size, report):
             return _complete_validation(report, None, bucket_name, object_key, "INVALID")
 
-        # Step 3: Extract archive
-        logger.info("Extracting model archive...")
+        # Step 2: Download JAR file from S3
+        logger.info("Downloading JAR from S3...")
+        response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
+        jar_file_content = response['Body'].read()
+
+        # Step 3: Extract JAR archive
+        logger.info("Extracting JAR archive...")
         filename = object_key.split('/')[-1]
-        extracted_files = structure_checker.extract_archive(model_file_content, filename)
+        extracted_files = jar_checker.extract_jar(jar_file_content, filename)
 
         if extracted_files is None:
             report.add_error(
-                "INVALID_ARCHIVE",
-                f"Unable to extract archive. Ensure file is .tar.gz or .zip format",
+                "INVALID_JAR",
+                f"Unable to extract JAR. Ensure file is a valid .jar file",
                 "CRITICAL"
             )
             return _complete_validation(report, None, bucket_name, object_key, "INVALID")
 
-        # Step 4: Validate structure
-        logger.info("Validating model structure...")
-        if not structure_checker.validate_structure(extracted_files, report):
+        # Log JAR contents
+        jar_contents = jar_checker.list_jar_contents(extracted_files)
+        logger.info(f"JAR contents: {jar_contents['class_files']} class files, "
+                   f"{jar_contents['json_files']} JSON files")
+
+        # Step 4: Validate JAR structure
+        logger.info("Validating JAR structure...")
+        if not jar_checker.validate_structure(extracted_files, report):
             return _complete_validation(report, None, bucket_name, object_key, "INVALID")
 
-        # Step 5: Validate metadata
+        # Step 5: Extract and validate metadata
         logger.info("Validating metadata...")
-        metadata_validator = MetadataValidator(
+        metadata_validator = JavaMetadataValidator(
             required_fields=validation_config['required_metadata_fields']
         )
 
-        metadata_content = extracted_files['metadata.json'].decode('utf-8')
+        metadata_bytes = jar_checker.get_metadata_file(extracted_files)
+        if not metadata_bytes:
+            report.add_error(
+                "MISSING_METADATA",
+                "metadata.json not found in JAR",
+                "CRITICAL"
+            )
+            return _complete_validation(report, None, bucket_name, object_key, "INVALID")
+
+        metadata_content = metadata_bytes.decode('utf-8')
         if not metadata_validator.validate(metadata_content, report):
             return _complete_validation(report, None, bucket_name, object_key, "INVALID")
 
-        # Extract model_id for reporting
+        # Extract model_id and model_class
         model_id = metadata_validator.extract_model_id(metadata_content)
-        if not model_id:
-            model_id = object_key.replace('/', '_').replace('.tar.gz', '').replace('.zip', '')
+        model_class = metadata_validator.extract_model_class(metadata_content)
 
-        # Step 6: Validate model class structure
-        logger.info("Validating model class structure...")
-        model_code = extracted_files['model.py'].decode('utf-8')
-        if not structure_checker.validate_model_class(model_code, report):
+        if not model_id:
+            model_id = object_key.replace('/', '_').replace('.jar', '')
+
+        if not model_class:
+            report.add_error(
+                "MISSING_MODEL_CLASS",
+                "metadata.json must specify 'model_class' field",
+                "CRITICAL"
+            )
             return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
 
-        # Step 7: Scan code for security issues
-        logger.info("Scanning code for security violations...")
-        code_scanner = CodeScanner(
-            allowed_imports=import_config['allowed_imports'],
-            blocked_imports=import_config['blocked_imports'],
-            blocked_builtins=import_config['blocked_builtins']
+        logger.info(f"Model class: {model_class}")
+
+        # Step 6: Find the model class file
+        logger.info(f"Finding model class: {model_class}...")
+        model_class_bytes = jar_checker.find_model_class(extracted_files, model_class)
+
+        if not model_class_bytes:
+            report.add_error(
+                "MODEL_CLASS_NOT_FOUND",
+                f"Class '{model_class}' not found in JAR",
+                "CRITICAL"
+            )
+            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+
+        # Step 7: Initialize bytecode scanner
+        logger.info("Initializing bytecode scanner...")
+        bytecode_scanner = JavaBytecodeScanner(
+            allowed_packages=security_config['allowed_packages'],
+            blocked_packages=security_config['blocked_packages'],
+            blocked_classes=security_config['blocked_classes'],
+            blocked_methods=security_config['blocked_methods']
         )
 
-        if not code_scanner.scan(model_code, report):
+        # Step 8: Check interface implementation
+        logger.info("Checking if class implements Model interface...")
+        required_interface = validation_config['required_interface']
+
+        if not bytecode_scanner.check_implements_interface(
+            model_class_bytes, required_interface, report
+        ):
             return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+
+        # Step 9: Check required method
+        logger.info("Checking for required simulateStep method...")
+        required_method = validation_config['required_method_name']
+        required_signature = validation_config['required_method_signature']
+
+        if not bytecode_scanner.check_has_method(
+            model_class_bytes, required_method, required_signature, report
+        ):
+            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+
+        # Step 10: Scan bytecode for security violations
+        logger.info("Scanning bytecode for security violations...")
+        if not bytecode_scanner.scan_class_file(model_class_bytes, report, model_class):
+            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+
+        # Step 11: Scan all other class files in JAR (in case model uses helper classes)
+        logger.info("Scanning helper classes...")
+        class_files = jar_checker.find_all_class_files(extracted_files)
+
+        for class_path, class_bytes in class_files.items():
+            # Skip the main model class (already scanned)
+            if model_class in class_path:
+                continue
+
+            # Skip interface/record classes (State, Order, Model)
+            if any(skip in class_path for skip in ['State.class', 'Order.class', 'Model.class']):
+                continue
+
+            logger.info(f"Scanning helper class: {class_path}")
+            if not bytecode_scanner.scan_class_file(class_bytes, report, class_path):
+                # Helper class has violations
+                logger.warning(f"Helper class {class_path} has security violations")
 
         # All checks passed!
         logger.info(f"Model {model_id} passed all validation checks")
@@ -179,7 +249,7 @@ def _complete_validation(report: ReportGenerator, model_id: str,
 
     # Use object key as fallback model_id
     if not model_id:
-        model_id = object_key.replace('/', '_').replace('.tar.gz', '').replace('.zip', '')
+        model_id = object_key.replace('/', '_').replace('.jar', '')
 
     # Generate report
     validation_report = report.generate_report(model_id)

@@ -1,18 +1,18 @@
 """
 AlphaBack Verify Service
-Model verification package for validating trading models
+Model verification package for validating Java trading models
 """
 
-from .code_scanner import CodeScanner
-from .structure_checker import StructureChecker
-from .metadata_validator import MetadataValidator
+from .java_bytecode_scanner import JavaBytecodeScanner
+from .jar_structure_checker import JarStructureChecker
+from .java_metadata_validator import JavaMetadataValidator
 from .report_generator import ReportGenerator
 
 __all__ = [
-    'CodeScanner',
-    'StructureChecker',
-    'MetadataValidator',
+    'JavaBytecodeScanner',
+    'JarStructureChecker',
+    'JavaMetadataValidator',
     'ReportGenerator'
 ]
 
-__version__ = '1.0.0'
+__version__ = '2.0.0'
