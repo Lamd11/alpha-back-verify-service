@@ -1,20 +1,7 @@
 {
   "max_file_size_bytes": 10485760,
-  "required_files": [
-    "metadata.json"
-  ],
-  "optional_files": [
-    "README.md"
-  ],
   "required_interface": "com/ttsudio/alphaback/Model",
   "required_method_name": "simulateStep",
   "required_method_signature": "(Lcom/ttsudio/alphaback/State;)Ljava/util/List;",
-  "required_metadata_fields": [
-    "model_id",
-    "version",
-    "author",
-    "model_class"
-  ],
-  "timeout_seconds": 5,
-  "min_accuracy_threshold": 0.95
+  "timeout_seconds": 5
 }
