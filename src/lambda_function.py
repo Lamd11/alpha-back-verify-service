@@ -47,15 +47,12 @@ security_config, validation_config = load_config()
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler - triggered by S3 upload of .class files
-
-    Args:
-        event: S3 event containing bucket and object information
-        context: Lambda context object
-
-    Returns:
-        Response dictionary with status and validation result
     """
     logger.info(f"Received event: {json.dumps(event)}")
+
+    report = ReportGenerator()
+    report.start_timing()
+    model_id = "unknown"
 
     try:
         # Extract S3 information from event
@@ -64,37 +61,31 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         object_key = record['s3']['object']['key']
         file_size = record['s3']['object']['size']
 
-        logger.info(f"Processing: s3://{bucket_name}/{object_key} ({file_size} bytes)")
-
-        # Initialize report generator
-        report = ReportGenerator()
-        report.start_timing()
-
-        # Extract model_id from the filename
-        # e.g., "models/user123/TrendFollower.class" → "TrendFollower"
+        # Extract model_id from filename
         filename = object_key.split('/')[-1]
         model_id = filename.replace('.class', '')
 
-        logger.info(f"Model ID: {model_id}")
+        logger.info(f"Processing: {model_id} ({file_size} bytes)")
 
-        # Step 1: Check file size
+        # CHECK 1: File Size
         max_size = validation_config.get('max_file_size_bytes', 10485760)
         if file_size > max_size:
-            report.add_error(
-                "FILE_TOO_LARGE",
-                f"File size ({file_size} bytes) exceeds maximum ({max_size} bytes)",
-                "CRITICAL"
-            )
-            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+            report.add_check_failed("fileSize", f"File too large: {file_size} bytes (max: {max_size})")
+            return _complete_validation(report, model_id, bucket_name, object_key)
 
-        report.add_check_passed("file_size_validation")
+        report.add_check_passed("fileSize")
 
-        # Step 2: Download .class file from S3
+        # CHECK 2: S3 File Readable
         logger.info("Downloading .class file...")
-        response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
-        class_bytes = response['Body'].read()
+        try:
+            response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
+            class_bytes = response['Body'].read()
+            report.add_check_passed("s3FileReadable")
+        except Exception as e:
+            report.add_check_failed("s3FileReadable", f"Cannot read file from S3: {str(e)}")
+            return _complete_validation(report, model_id, bucket_name, object_key)
 
-        # Step 3: Initialize bytecode scanner
+        # Initialize bytecode scanner
         bytecode_scanner = JavaBytecodeScanner(
             allowed_packages=security_config['allowed_packages'],
             blocked_packages=security_config['blocked_packages'],
@@ -102,95 +93,92 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             blocked_methods=security_config['blocked_methods']
         )
 
-        # Step 4: Verify it's a valid .class file
+        # CHECK 3: Valid Class File
         logger.info("Parsing .class file...")
         class_info = bytecode_scanner.get_class_info(class_bytes)
 
         if 'error' in class_info:
-            report.add_error(
-                "INVALID_CLASS_FILE",
-                f"Cannot parse .class file: {class_info['error']}",
-                "CRITICAL"
-            )
-            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+            report.add_check_failed("classFileValid", f"Invalid .class file: {class_info['error']}")
+            return _complete_validation(report, model_id, bucket_name, object_key)
 
-        logger.info(f"Class: {class_info['class_name']}, Interfaces: {class_info['interfaces']}")
-        report.add_check_passed("class_file_valid")
+        report.add_check_passed("classFileValid")
+        logger.info(f"Class: {class_info['class_name']}")
 
-        # Step 5: Check implements Model interface
+        # CHECK 4: Implements Model Interface
         logger.info("Checking Model interface...")
         required_interface = validation_config['required_interface']
 
         if not bytecode_scanner.check_implements_interface(class_bytes, required_interface, report):
-            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+            return _complete_validation(report, model_id, bucket_name, object_key)
 
-        # Step 6: Check simulateStep method exists
+        # CHECK 5: Has simulateStep Method
         logger.info("Checking simulateStep method...")
         required_method = validation_config['required_method_name']
         required_signature = validation_config['required_method_signature']
 
         if not bytecode_scanner.check_has_method(class_bytes, required_method, required_signature, report):
-            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+            return _complete_validation(report, model_id, bucket_name, object_key)
 
-        # Step 7: Scan for security violations
+        # CHECK 6: Security Scan (no blocked packages/methods)
         logger.info("Scanning for security violations...")
         if not bytecode_scanner.scan_class_file(class_bytes, report, model_id):
-            return _complete_validation(report, model_id, bucket_name, object_key, "INVALID")
+            return _complete_validation(report, model_id, bucket_name, object_key)
 
         # All checks passed!
-        logger.info(f"Model {model_id} VALID")
-        return _complete_validation(report, model_id, bucket_name, object_key, "VALID")
+        logger.info(f"Model {model_id} VERIFIED")
+        return _complete_validation(report, model_id, bucket_name, object_key)
 
     except KeyError as e:
         logger.error(f"Invalid event: {str(e)}")
-        return {'statusCode': 400, 'body': json.dumps({'error': str(e)})}
+        report.add_check_failed("eventParsing", f"Invalid S3 event: {str(e)}")
+        return _complete_validation(report, model_id, "", "")
 
     except Exception as e:
         logger.error(f"Error: {str(e)}", exc_info=True)
-        return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
+        report.add_check_failed("unexpectedError", str(e))
+        return _complete_validation(report, model_id, "", "")
 
 
 def _complete_validation(report: ReportGenerator, model_id: str,
-                        bucket_name: str, object_key: str,
-                        status: str) -> Dict[str, Any]:
+                        bucket_name: str, object_key: str) -> Dict[str, Any]:
     """Complete validation and write results to DynamoDB"""
     report.end_timing()
     validation_report = report.generate_report(model_id)
-    logger.info(f"Result: {json.dumps(validation_report)}")
 
+    logger.info(f"Result: verified={validation_report['verified']}, "
+                f"errors={len(validation_report['overallErrors'])}")
+
+    # Write to DynamoDB
     try:
-        # Write to Model Registry
-        table = dynamodb.Table(MODEL_REGISTRY_TABLE)
-        table.put_item(Item={
-            'model_id': model_id,
-            's3_bucket': bucket_name,
-            's3_key': object_key,
-            'validation_status': status,
-            'validation_timestamp': validation_report['timestamp'],
-            'validation_report': json.dumps(validation_report),
-            'checks_passed': validation_report.get('checks_passed', []),
-            'execution_time_ms': validation_report['execution_time_ms']
-        })
+        if bucket_name and object_key:
+            # Write to Model Registry
+            table = dynamodb.Table(MODEL_REGISTRY_TABLE)
+            table.put_item(Item={
+                'model_id': model_id,
+                's3_bucket': bucket_name,
+                's3_key': object_key,
+                'verified': validation_report['verified'],
+                'timestamp': validation_report['timestamp'],
+                'report': json.dumps(validation_report),
+                'executionTimeMs': validation_report['executionTimeMs']
+            })
 
-        # Update Upload Status
-        table = dynamodb.Table(UPLOAD_STATUS_TABLE)
-        table.update_item(
-            Key={'model_id': model_id},
-            UpdateExpression='SET validation_status = :s, validation_timestamp = :t, validation_complete = :c',
-            ExpressionAttributeValues={
-                ':s': status,
-                ':t': validation_report['timestamp'],
-                ':c': True
-            }
-        )
+            # Update Upload Status
+            table = dynamodb.Table(UPLOAD_STATUS_TABLE)
+            table.update_item(
+                Key={'model_id': model_id},
+                UpdateExpression='SET verified = :v, #ts = :t, validation_complete = :c',
+                ExpressionAttributeNames={'#ts': 'timestamp'},
+                ExpressionAttributeValues={
+                    ':v': validation_report['verified'],
+                    ':t': validation_report['timestamp'],
+                    ':c': True
+                }
+            )
     except Exception as e:
         logger.error(f"DynamoDB error: {str(e)}")
 
     return {
         'statusCode': 200,
-        'body': json.dumps({
-            'model_id': model_id,
-            'status': status,
-            'report': validation_report
-        })
+        'body': json.dumps(validation_report)
     }
