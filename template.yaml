@@ -103,24 +103,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: model_id
           AttributeType: S
-        - AttributeName: validation_timestamp
-          AttributeType: S
       KeySchema:
         - AttributeName: model_id
           KeyType: HASH
-        - AttributeName: validation_timestamp
-          KeyType: RANGE
-      GlobalSecondaryIndexes:
-        - IndexName: validation_status_index
-          KeySchema:
-            - AttributeName: validation_status
-              KeyType: HASH
-            - AttributeName: validation_timestamp
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
-      StreamSpecification:
-        StreamViewType: NEW_AND_OLD_IMAGES
       Tags:
         - Key: Service
           Value: AlphaBack-Verify
