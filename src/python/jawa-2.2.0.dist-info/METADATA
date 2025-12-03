@@ -1,0 +1,55 @@
+Metadata-Version: 2.1
+Name: jawa
+Version: 2.2.0
+Summary: Doing fun stuff with JVM ClassFiles.
+Home-page: http://github.com/TkTech/Jawa
+Author: Tyler Kennedy
+Author-email: tk@tkte.ch
+License: UNKNOWN
+Keywords: java,disassembly,disassembler,assembly
+Platform: UNKNOWN
+Classifier: Programming Language :: Python
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Software Development :: Disassemblers
+Classifier: Topic :: Software Development :: Assemblers
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+Requires-Dist: click (>=5.0)
+Provides-Extra: dev
+Requires-Dist: pytest ; extra == 'dev'
+Requires-Dist: sphinx ; extra == 'dev'
+Requires-Dist: sphinxcontrib-googleanalytics ; extra == 'dev'
+Requires-Dist: sphinx-rtd-theme ; extra == 'dev'
+Requires-Dist: sphinx-click ; extra == 'dev'
+Requires-Dist: ghp-import ; extra == 'dev'
+Requires-Dist: pyyaml ; extra == 'dev'
+Requires-Dist: ipython ; extra == 'dev'
+Requires-Dist: twine ; extra == 'dev'
+Requires-Dist: wheel ; extra == 'dev'
+Requires-Dist: bumpversion ; extra == 'dev'
+
+# Jawa
+
+[![CircleCI](https://img.shields.io/circleci/project/github/TkTech/Jawa/master.svg?style=for-the-badge)](https://circleci.com/gh/TkTech/Jawa)
+[![license](https://img.shields.io/github/license/tktech/jawa.svg?style=for-the-badge)](LICENCE)
+
+Jawa is a human-friendly library for assembling, disassembling, and exploring
+JVM class files. It's highly suitable for automation tasks.
+
+*NOTE*: The assembler does _not_ currently implement Stack Maps, an
+artificially complex requirement for ClassFiles generated for Java 7 and
+above to properly verify (unless you turn it off with -XX:-UseSplitVerifier).
+However, assembled files targeting Java 6 will still work with 7 and above.
+
+## Documentation
+
+API documentation & examples are available at http://jawa.tkte.ch
+
+## Licence
+
+Jawa is available under the MIT licence. See LICENCE.
+
+

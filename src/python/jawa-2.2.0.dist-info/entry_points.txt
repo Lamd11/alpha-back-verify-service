@@ -1,0 +1,4 @@
+
+    [console_scripts]
+    jawa=jawa.cli:cli
+    
